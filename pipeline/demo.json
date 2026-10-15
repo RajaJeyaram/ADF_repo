@@ -4,6 +4,7 @@
 		"activities": [
 			{
 				"name": "Copy data1",
+				"description": "this is for  copy from azure sql to adls gen 2",
 				"type": "Copy",
 				"dependsOn": [],
 				"policy": {
