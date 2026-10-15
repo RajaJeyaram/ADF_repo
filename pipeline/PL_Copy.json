@@ -1,0 +1,333 @@
+{
+	"name": "PL_Copy",
+	"properties": {
+		"activities": [
+			{
+				"name": "Lookup",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select watermark_value from metadata.table_watermarks where table_name = '@{pipeline().parameters.PL_TB}'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_SQL",
+						"type": "DatasetReference",
+						"parameters": {
+							"sc": {
+								"value": "@pipeline().parameters.PL_SC",
+								"type": "Expression"
+							},
+							"tb": {
+								"value": "@pipeline().parameters.PL_TB",
+								"type": "Expression"
+							}
+						}
+					}
+				}
+			},
+			{
+				"name": "CheckNewData",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "Lookup",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select count(*) as total from @{pipeline().parameters.PL_SC}.@{pipeline().parameters.PL_TB} where ModifiedDate > '@{activity('Lookup').output.firstRow.watermark_value}'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_SQL",
+						"type": "DatasetReference",
+						"parameters": {
+							"sc": {
+								"value": "@pipeline().parameters.PL_SC",
+								"type": "Expression"
+							},
+							"tb": {
+								"value": "@pipeline().parameters.PL_TB",
+								"type": "Expression"
+							}
+						}
+					}
+				}
+			},
+			{
+				"name": "perform_only_data_available",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "CheckNewData",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@greater(activity('CheckNewData').output.firstRow.total,0)",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "cp",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "select * from @{pipeline().parameters.PL_SC}.@{pipeline().parameters.PL_TB} where ModifiedDate= '@{activity('Lookup').output.firstRow.watermark_value}'",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "ParquetSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "ParquetWriteSettings"
+									}
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_SQL",
+									"type": "DatasetReference",
+									"parameters": {
+										"sc": {
+											"value": "@pipeline().parameters.PL_SC",
+											"type": "Expression"
+										},
+										"tb": {
+											"value": "@pipeline().parameters.PL_TB",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_PQ",
+									"type": "DatasetReference",
+									"parameters": {
+										"tb": {
+											"value": "@pipeline().parameters.PL_TB",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "Script",
+							"type": "Script",
+							"dependsOn": [
+								{
+									"activity": "MaxLookUp",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "LS_AzureSql_Connection",
+								"type": "LinkedServiceReference"
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "update metadata.table_watermarks\nset watermark_value = '@{activity('MaxLookUp').output.firstRow.md}'\nwhere table_name = '@{pipeline().parameters.PL_TB}'",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						},
+						{
+							"name": "MaxLookUp",
+							"type": "Lookup",
+							"dependsOn": [
+								{
+									"activity": "cp",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "select max(ModifiedDate) as md from @{pipeline().parameters.PL_SC}.@{pipeline().parameters.PL_TB}",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"dataset": {
+									"referenceName": "DS_SQL",
+									"type": "DatasetReference",
+									"parameters": {
+										"sc": {
+											"value": "@pipeline().parameters.PL_SC",
+											"type": "Expression"
+										},
+										"tb": {
+											"value": "@pipeline().parameters.PL_TB",
+											"type": "Expression"
+										}
+									}
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "SUCCESS_EMAIL_TRIGGER",
+				"type": "ExecutePipeline",
+				"state": "Inactive",
+				"onInactiveMarkAs": "Succeeded",
+				"dependsOn": [],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "demo",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"table_name": {
+							"value": "@pipeline().parameters.PL_TB",
+							"type": "Expression"
+						},
+						"EmailID": {
+							"value": "@pipeline().globalParameters.Email",
+							"type": "Expression"
+						},
+						"Status": "SUCCESS"
+					}
+				}
+			},
+			{
+				"name": "FAIL_EMAIL_TRIGGER",
+				"type": "ExecutePipeline",
+				"state": "Inactive",
+				"onInactiveMarkAs": "Succeeded",
+				"dependsOn": [],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "demo",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"table_name": {
+							"value": "@pipeline().parameters.PL_TB",
+							"type": "Expression"
+						},
+						"EmailID": {
+							"value": "@pipeline().globalParameters.Email",
+							"type": "Expression"
+						},
+						"Status": "FAIL"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"PL_SC": {
+				"type": "string",
+				"defaultValue": "dbo"
+			},
+			"PL_TB": {
+				"type": "string",
+				"defaultValue": "products"
+			}
+		},
+		"annotations": [],
+		"lastPublishTime": "2026-10-14T13:41:00Z"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

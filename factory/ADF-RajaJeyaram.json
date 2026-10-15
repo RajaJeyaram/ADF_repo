@@ -1,0 +1,21 @@
+{
+	"name": "ADF-RajaJeyaram",
+	"properties": {
+		"globalParameters": {
+			"Email": {
+				"type": "string",
+				"value": "learning.mode100@gmail.com"
+			}
+		},
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "indiasouthcentral",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "d0944900-fb55-4013-9aaa-08069b2da44e",
+		"tenantId": "0a0e0c88-9922-4fd1-8378-f46439b003ac"
+	}
+}
